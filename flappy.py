@@ -5,9 +5,10 @@ import os
 import random 
 import socket 
 import json 
+import threading
 
 pygame.font.init()
-pygame.init()  # Initialize Pygame
+#pygame.init()  # Initialize Pygame
 
 generation = 0  # Initialize generation counter
 exchange_interval = 10  # Exchange genomes every 10 generations
@@ -29,8 +30,6 @@ PIPE_IMGS = [pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","pip
 BASE_IMGS = [pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","base.png")))]
 BG_IMGS = [pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","bg.png")))]
 STAT_FONT = pygame.font.SysFont("comicsans", 50)
-
-# Define your classes and functions...
 
 class Bird:
     IMGS = BIRD_IMGS
@@ -202,7 +201,6 @@ def send_genomes(genomes_list, host, port):
             for genome_key, genome in genomes_list:
                 # Serialize the genome
                 serialized_genome = serialize_genome(genome)
-                #print(serialized_genome)
                 # Send the serialized genome over the socket
                 s.sendall(json.dumps(serialized_genome).encode())
     except socket.timeout:
@@ -212,30 +210,37 @@ def send_genomes(genomes_list, host, port):
     except Exception as e:
         print("Error sending genomes:", e)
 
-
 def receive_genomes(host, port):
     """
     Receive genomes from the Scala server.
     """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind((host, port))
-            s.listen()
-            conn, addr = s.accept()
-            with conn:
-                data = b''
-                while True:
-                    packet = conn.recv(4096)
-                    if not packet:
-                        break
-                    data += packet
-                received_genomes = json.loads(data.decode())
-                return received_genomes
-    except socket.timeout:
-        print("No connection established within the timeout period.")
-    except Exception as e:
-        print("Error receiving genomes:", e)
-        return None
+    received_genomes = None
+
+    def receive_thread():
+        nonlocal received_genomes
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((host, port))
+                s.listen()
+                conn, addr = s.accept()
+                print("RECEIVING GENOMES")
+                with conn:
+                    data = b''
+                    print("RECEIVING")
+                    while True:
+                        packet = conn.recv(4096)
+                        if not packet:
+                            break
+                        data += packet
+                    received_genomes = json.loads(data.decode())
+        except Exception as e:
+            print("Error receiving genomes:", e)
+
+    thread = threading.Thread(target=receive_thread)
+    thread.start()
+    thread.join(timeout=1)  # Adjust the timeout value as needed
+
+    return received_genomes
 
 def main(genomes, config):
     global generation  # Declare generation as global to modify its value
@@ -250,6 +255,7 @@ def main(genomes, config):
         send_genomes(genomes, host, port_send)
         received_genomes = receive_genomes(host, port_receive)
         # Evaluate received genomes and integrate them into the population
+        print(received_genomes)
         if received_genomes:
             for received_genome in received_genomes:
                 # Process received genomes as needed
@@ -272,7 +278,7 @@ def main(genomes, config):
     
     # Iterate over genomes
     for genome_key, g in genomes:
-        g.fitness = 0  # Initialize fitness to 0
+        g.fitness = 0.1  # Initialize fitness to 0
         net = neat.nn.FeedForwardNetwork.create(g, config)
         nets.append(net)
         birds.append(Bird(230, 350))
