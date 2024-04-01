@@ -166,12 +166,13 @@ def draw_window(win, birds, pipes, base, score):
         bird.draw(win)
     pygame.display.update()
 
-# main will act as out fitness function 
+# main will act as our fitness function 
 def main(genomes, config):
     nets = []
     ge = []
     birds = []
     for _,g in genomes:
+        print(g)
         net = neat.nn.FeedForwardNetwork.create(g, config)
         nets.append(net)
         birds.append(Bird(230,350))
@@ -246,8 +247,6 @@ def main(genomes, config):
 
 
         draw_window(win, birds, pipes, base, score);
-
-#main()
 
 def run (config_path):
         config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,

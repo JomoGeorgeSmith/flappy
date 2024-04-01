@@ -1,0 +1,14 @@
+{
+    "python.pythonPath": "/opt/anaconda3/bin/python",
+    "files.watcherExclude": {
+        "**/target": true
+    },
+    "metals.javaHome": "/Users/jomosmith/.jabba/jdk/adopt@1.11.0-11/Contents/Home",
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.autoComplete.extraPaths": [
+        "/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/scala/py4j0.10.9.7.jar"
+    ],
+    "python.analysis.extraPaths": [
+        "/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/scala/py4j0.10.9.7.jar"
+    ]
+}
