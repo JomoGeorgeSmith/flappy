@@ -13,8 +13,6 @@ pygame.font.init()
 generation = 0  # Initialize generation counter
 exchange_interval = 10  # Exchange genomes every 10 generations
 threshold_fitness = 100  # 
-scala_send_port = 8080
-scala_receive_port = 8081
 host_name = ""
 
 WIN_WIDTH = 550
@@ -194,21 +192,28 @@ def send_genomes(genomes_list, host, port):
     """
     Send genomes to the specified host and port using socket communication.
     """
-    try:
-        # Connect to the host and port
-        print("SENDING")
-        with socket.create_connection((host, port), timeout=1) as s:
+    def send_thread():
+        s = None  # Initialize socket variable
+        try:
+            # Connect to the host and port
+            print("SENDING")
+            s = socket.create_connection((host, port), timeout=1)
             for genome_key, genome in genomes_list:
                 # Serialize the genome
                 serialized_genome = serialize_genome(genome)
                 # Send the serialized genome over the socket
                 s.sendall(json.dumps(serialized_genome).encode())
-    except socket.timeout:
-        print("Connection to Scala host timed out.")
-    except ConnectionRefusedError:
-        print("Connection to Scala host refused.")
-    except Exception as e:
-        print("Error sending genomes:", e)
+        except socket.timeout:
+            print("Connection to Scala host timed out.")
+        except ConnectionRefusedError:
+            print("Connection to Scala host refused.")
+        except Exception as e:
+            print("Error sending genomes:", e)
+        finally:
+            if s:  # Check if socket exists before closing
+                s.close()
+    thread = threading.Thread(target=send_thread)
+    thread.start()
 
 def receive_genomes(host, port):
     """
@@ -226,7 +231,6 @@ def receive_genomes(host, port):
                 print("RECEIVING GENOMES")
                 with conn:
                     data = b''
-                    print("RECEIVING")
                     while True:
                         packet = conn.recv(4096)
                         if not packet:
@@ -242,24 +246,13 @@ def receive_genomes(host, port):
 
     return received_genomes
 
+
 def main(genomes, config):
-    global generation  # Declare generation as global to modify its value
-    # Define host and port for communication with Scala server
+    global generation  
     host = "Jomos-MBP.lan"
     port_send = 8080
     port_receive = 8081
-    generation += 1  # Increment generation counter
-
-    # Periodically exchange genomes with Scala server
-    if generation % exchange_interval == 0:
-        send_genomes(genomes, host, port_send)
-        received_genomes = receive_genomes(host, port_receive)
-        # Evaluate received genomes and integrate them into the population
-        print(received_genomes)
-        if received_genomes:
-            for received_genome in received_genomes:
-                # Process received genomes as needed
-                genomes.append(received_genome)
+    generation += 1  
 
     # Game simulation and NEAT training
     nets = []
@@ -347,17 +340,17 @@ def main(genomes, config):
         draw_window(win, birds, pipes, base, score)
 
         # Send genomes to Scala/Akka node
-        send_genomes(send_genomes_list, host, scala_send_port)
+        send_genomes(send_genomes_list, host, port_send)
 
         # Receive genomes from Scala/Akka node
-        received_genomes = receive_genomes(host, scala_receive_port)
+        received_genomes = receive_genomes(host, port_receive)
 
         # Integrate received genomes into the population
         if received_genomes:
             for received_genome in received_genomes:
                 genomes.append(received_genome)
 
-    #pygame.quit()  # Quit pygame when the loop exits
+    pygame.quit()  # Quit pygame when the loop exits
 
 def run(config_path):
     #pygame.init()  # Initialize Pygame
@@ -371,7 +364,7 @@ def run(config_path):
 
     winner = p.run(main, 50)
 
-    #pygame.quit()  
+    pygame.quit()  
 
 if __name__ == "__main__":
     local_dir = os.path.dirname(__file__)

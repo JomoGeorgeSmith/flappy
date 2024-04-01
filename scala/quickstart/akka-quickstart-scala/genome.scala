@@ -1,6 +1,9 @@
 import java.io.{BufferedReader, InputStreamReader, PrintWriter}
 import java.net.{ServerSocket, Socket, InetAddress}
 import play.api.libs.json._
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.{Try, Success, Failure}
 
 case class Node(key: Int, bias: Double, response: Int, activation: String, aggregation: String)
 object Node {
@@ -18,45 +21,58 @@ object Genome {
 }
 
 object Main extends App {
-  val port = 8080
-  val serverSocket = new ServerSocket(port)
+  val receivePort = 8080
+  val sendPort = 8081
+  val serverSocket = new ServerSocket(receivePort)
   println("Scala server started")
   val hostName = InetAddress.getLocalHost.getHostName
   println("Host name: " + hostName)
   var count = 0
 
   while (true) {
-    val clientSocket = serverSocket.accept()
+    val clientSocket = Try(serverSocket.accept()) match {
+      case Success(socket) => socket
+      case Failure(exception) =>
+        println("Error accepting connection:", exception)
+        serverSocket.close()
+        sys.exit(1)
+    }
     println("Client connected")
 
-    val in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
-    val out = new PrintWriter(clientSocket.getOutputStream, true)
+    Future {
+      val in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
 
-    val receivedGenomes = scala.collection.mutable.ListBuffer[Genome]()
+      val receivedGenomes = scala.collection.mutable.ListBuffer[Genome]()
 
-    var line: String = null
-    while ({line = in.readLine(); line != null}) {
-      val json = Json.parse(line)
-      val genomeKey = (json \ "key").as[Int]
-      val fitness = (json \ "fitness").asOpt[Double].getOrElse(0.0)
-      val nodes = (json \ "nodes").as[List[Node]]
-      val connections = (json \ "connections").as[List[Connection]]
-      println("RECEIVINg GENOMES")
-      receivedGenomes += Genome(genomeKey, Some(fitness), nodes, connections)
+      var line: String = null
+      while ({line = in.readLine(); line != null}) {
+        val json = Json.parse(line)
+        val genomeKey = (json \ "key").as[Int]
+        val fitness = (json \ "fitness").asOpt[Double].getOrElse(0.0)
+        val nodes = (json \ "nodes").as[List[Node]]
+        val connections = (json \ "connections").as[List[Connection]]
+        println("RECEIVING GENOMES")
+        receivedGenomes += Genome(genomeKey, Some(fitness), nodes, connections)
+      }
+
+      clientSocket.close()
+      println("Client disconnected")
+
+      // Send genomes to the specified host and port
+      val sendSocket = new Socket(InetAddress.getLocalHost, sendPort)
+      val out = new PrintWriter(sendSocket.getOutputStream, true)
+
+      for (genome <- receivedGenomes) {
+        val fitness = evaluateGenome(genome.nodes, genome.connections)
+        count += 1
+        val responseData = Json.toJson(genome.copy(fitness = Some(fitness)))
+        println("SENDING GENOMES")
+        out.println(Json.stringify(responseData))
+      }
+
+      out.close()
+      sendSocket.close()
     }
-
-    for (genome <- receivedGenomes) {
-      val fitness = evaluateGenome(genome.nodes, genome.connections)
-      count += 1
-      val responseData = Json.toJson(genome.copy(fitness = Some(fitness)))
-      println("SENDING GENOMES")
-      out.println(Json.stringify(responseData))
-    }
-
-    in.close()
-    out.close()
-    clientSocket.close()
-    println("Client disconnected")
   }
 
   def evaluateGenome(nodes: List[Node], connections: List[Connection]): Double = {
