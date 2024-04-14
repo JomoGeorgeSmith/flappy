@@ -23,7 +23,8 @@ object Genome {
 object Main extends App {
   val receivePort = 8080
   val sendPort = 8081
-  val serverSocket = new ServerSocket(receivePort)
+  val serverSocket = new ServerSocket(receivePort, 0, InetAddress.getByName("0.0.0.0"))
+
   println("Scala server started")
   val hostName = InetAddress.getLocalHost.getHostName
   println("Host name: " + hostName)

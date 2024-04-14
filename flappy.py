@@ -138,6 +138,7 @@ class Pipe:
             return True
         
         return False 
+
 class Base:
     VEL = 5
     WIDTH = BASE_IMGS[0].get_width()
@@ -271,10 +272,11 @@ def main(genomes, config):
     
     # Iterate over genomes
     for genome_key, g in genomes:
-        g.fitness = 0.1  # Initialize fitness to 0
+        # Initialize fitness to 0
         net = neat.nn.FeedForwardNetwork.create(g, config)
         nets.append(net)
         birds.append(Bird(230, 350))
+        g.fitness = 0
         ge.append(g)
         # Append genome key to list for sending
         send_genomes_list.append((genome_key, g))
@@ -314,9 +316,11 @@ def main(genomes, config):
         for pipe in pipes:
             for x, bird in enumerate(birds):
                 if pipe.collide(bird):
-                    if ge[x]:  # Check if the genome exists
-                        ge[x].fitness -= 1
+                    ge[x].fitness -= 1
                     birds.pop(x)
+                    nets.pop(x)
+                    ge.pop(x)
+
 
             if not pipe.passed and pipe.x < bird.x:
                 pipe.passed = True
@@ -337,8 +341,10 @@ def main(genomes, config):
 
         for x, bird in enumerate(birds):
             if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
-                if ge[x]:  # Check if the genome exists
-                    birds.pop(x)
+                birds.pop(x)
+                nets.pop(x)
+                ge.pop(x)
+
 
         draw_window(win, birds, pipes, base, score)
 

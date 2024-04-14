@@ -1,0 +1,26 @@
+[project]
+name = "flappy"
+version = "1.0"
+description = "Flappy Bird game"
+
+[[target]]
+name = "flappy"
+type = "executable"
+entry_point = "flappy.py"
+
+[python]
+implementation = "cpython"
+version = "3.9"
+
+[dependencies]
+packages = [
+    # Add any additional Python packages required by your game
+    "pygame = { version = \"2.1.2\", features = [\"sdl2\", \"image\", \"mixer\", \"font\"] }",
+    "neat-python = { version = \"0.92\" }"
+]
+
+[filesystems.data]
+path = "imgs"
+
+[filesystems.data]
+path = "neat_config.txt"
