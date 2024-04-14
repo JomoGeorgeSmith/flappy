@@ -341,6 +341,7 @@ def main(genomes, config):
 
         for x, bird in enumerate(birds):
             if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
+                print("Fitness of genome:", ge[x].fitness)
                 birds.pop(x)
                 nets.pop(x)
                 ge.pop(x)
@@ -348,15 +349,16 @@ def main(genomes, config):
 
         draw_window(win, birds, pipes, base, score)
 
+        good_genomes = [(k, g) for k, g in send_genomes_list if g.fitness > 5]
+
         # Send genomes to Scala/Akka node
-        #send_genomes(send_genomes_list, host, port_send)
+        send_genomes(good_genomes, host, port_send)
 
         # Evaluate genomes and select top-performing ones
-        top_performing_genomes = sorted(send_genomes_list, key=lambda x: x[1].fitness, reverse=True)[:10]
+        #top_performing_genomes = sorted(send_genomes_list, key=lambda x: x[1].fitness, reverse=True)[:50]
 
         # Send top-performing genomes
-        send_genomes(top_performing_genomes, host, port_send)
-
+        #send_genomes(top_performing_genomes, host, port_send)
 
         # Receive genomes from Scala/Akka node
         received_genomes = receive_genomes(host, port_receive)
@@ -365,6 +367,8 @@ def main(genomes, config):
         if received_genomes:
             for received_genome in received_genomes:
                 genomes.append(received_genome)
+
+
 
 def run(config_path):
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,

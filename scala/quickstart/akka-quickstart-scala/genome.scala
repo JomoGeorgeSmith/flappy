@@ -38,9 +38,9 @@ object Main extends App {
         serverSocket.close()
         sys.exit(1)
     }
-  // Get the client's IP address
-  val clientAddress = clientSocket.getInetAddress.getHostAddress
-  println(s"Client connected from IP address: $clientAddress")
+    // Get the client's IP address
+    val clientAddress = clientSocket.getInetAddress.getHostAddress
+    println(s"Client connected from IP address: $clientAddress")
 
     Future {
       val in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
@@ -86,5 +86,5 @@ object Main extends App {
     biasSum
   }
 
-  val thresholdFitness = 0.5
+  val thresholdFitness = 3.0
 }
