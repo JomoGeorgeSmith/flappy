@@ -349,7 +349,14 @@ def main(genomes, config):
         draw_window(win, birds, pipes, base, score)
 
         # Send genomes to Scala/Akka node
-        send_genomes(send_genomes_list, host, port_send)
+        #send_genomes(send_genomes_list, host, port_send)
+
+        # Evaluate genomes and select top-performing ones
+        top_performing_genomes = sorted(send_genomes_list, key=lambda x: x[1].fitness, reverse=True)[:10]
+
+        # Send top-performing genomes
+        send_genomes(top_performing_genomes, host, port_send)
+
 
         # Receive genomes from Scala/Akka node
         received_genomes = receive_genomes(host, port_receive)

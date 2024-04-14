@@ -38,7 +38,9 @@ object Main extends App {
         serverSocket.close()
         sys.exit(1)
     }
-    println("Client connected")
+  // Get the client's IP address
+  val clientAddress = clientSocket.getInetAddress.getHostAddress
+  println(s"Client connected from IP address: $clientAddress")
 
     Future {
       val in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
@@ -59,11 +61,14 @@ object Main extends App {
       clientSocket.close()
       println("Client disconnected")
 
-      // Send genomes to the specified host and port
+      // Evaluate and filter genomes based on fitness threshold
+      val goodGenomes = receivedGenomes.filter(_.fitness.exists(_ > thresholdFitness))
+
+      // Send only good genomes to the specified host and port
       val sendSocket = new Socket(InetAddress.getLocalHost, sendPort)
       val out = new PrintWriter(sendSocket.getOutputStream, true)
 
-      for (genome <- receivedGenomes) {
+      for (genome <- goodGenomes) {
         val fitness = evaluateGenome(genome.nodes, genome.connections)
         count += 1
         val responseData = Json.toJson(genome.copy(fitness = Some(fitness)))
@@ -81,5 +86,5 @@ object Main extends App {
     biasSum
   }
 
-  val thresholdFitness = 0.0
+  val thresholdFitness = 0.5
 }
