@@ -86,5 +86,5 @@ object Main extends App {
     biasSum
   }
 
-  val thresholdFitness = 3.0
+  val thresholdFitness = 1.0
 }

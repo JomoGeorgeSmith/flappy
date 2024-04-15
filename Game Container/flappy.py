@@ -244,7 +244,102 @@ def receive_genomes(host, port):
     thread.start()
     thread.join(timeout=1)  # Adjust the timeout value as needed
 
-    return received_genomes
+    return received_genomes if received_genomes else []
+
+
+def evaluate_genomes(ge, nets, birds, pipes, score):
+    """
+    Evaluate the fitness of each genome based on game performance.
+    """
+    for x, bird in enumerate(birds):
+        if ge[x]:  # Check if the genome exists
+            ge[x].fitness += 0.1
+        bird.move()
+
+        # Check for collisions with pipes
+        for pipe in pipes:
+            if pipe.collide(bird):
+                ge[x].fitness -= 1
+                birds.pop(x)
+                nets.pop(x)
+                ge.pop(x)
+
+        # Check if the bird passed through a pipe
+        if pipes and not pipes[0].passed and pipes[0].x < bird.x:
+            pipes[0].passed = True
+            score += 1
+            for g in ge:
+                if g:  # Check if the genome exists
+                    g.fitness += 5
+
+        # Check if the bird goes out of bounds
+        if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
+            birds.pop(x)
+            nets.pop(x)
+            ge.pop(x)
+
+    print("SCORE : ")
+    print(score)
+    return score
+
+def convert_to_neat_genome(received_genome_data):
+    """
+    Convert received genome data into a custom NEAT genome data structure.
+    """
+    #print("Received genome data string:", received_genome_data)
+
+    # Check if received_genome_data is a string
+    if isinstance(received_genome_data, str):
+        # Check if the string is empty
+        if not received_genome_data.strip():
+            print("Received genome data string is empty.")
+            return None
+        try:
+            # Parse the string into a dictionary
+            received_genome_dict = json.loads(received_genome_data)
+            
+            # Recursively call the function with the parsed dictionary
+            return convert_to_neat_genome(received_genome_dict)
+        except Exception as e:
+            print("Error parsing string to dictionary:", e)
+            return None
+    
+    # Check if received_genome_data is a dictionary
+    elif isinstance(received_genome_data, dict):
+        # Ensure received_genome_data has all required keys
+        required_keys = ["key", "fitness", "nodes", "connections"]
+        if all(key in received_genome_data for key in required_keys):
+            try:
+                # Extract genome attributes from the received data
+                key = received_genome_data["key"]
+                fitness = received_genome_data["fitness"]
+                nodes = received_genome_data["nodes"]
+                connections = received_genome_data["connections"]
+
+                # Create a new custom NEAT genome object and populate its attributes
+                new_genome = {
+                    "key": key,
+                    "fitness": fitness,
+                    "nodes": nodes,
+                    "connections": connections
+                }
+
+                # Return the converted NEAT genome
+                print("Succesful Conversion")
+                return new_genome
+            except Exception as e:
+                print("Error converting genome:", e)
+                return None
+        else:
+            print("Received genome data is incomplete.")
+            return None
+    
+    # Handle other types of input data
+    else:
+        print("Received genome data is not in the correct format.")
+        return None
+
+
 
 def main(genomes, config):
     pygame.font.init()
@@ -348,8 +443,10 @@ def main(genomes, config):
 
 
         draw_window(win, birds, pipes, base, score)
+                # Check for collisions and update score
+        #score = evaluate_genomes(ge, nets, birds, pipes, score)
 
-        good_genomes = [(k, g) for k, g in send_genomes_list if g.fitness > 5]
+        good_genomes = [(k, g) for k, g in send_genomes_list if g.fitness > 10]
 
         # Send genomes to Scala/Akka node
         send_genomes(good_genomes, host, port_send)
@@ -364,11 +461,17 @@ def main(genomes, config):
         received_genomes = receive_genomes(host, port_receive)
 
         # Integrate received genomes into the population
+        # if received_genomes:
+        #     print(received_genomes)
+        #     for received_genome_data in received_genomes:
+        #         received_genome = convert_to_neat_genome(received_genome_data)
+        #         genomes.append(received_genome)
+
+        # Integrate received genomes into the population
         if received_genomes:
-            for received_genome in received_genomes:
-                genomes.append(received_genome)
-
-
+            #print(received_genomes)
+            received_genome = convert_to_neat_genome(received_genomes)
+            genomes.append(received_genome)        
 
 def run(config_path):
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
@@ -387,4 +490,3 @@ if __name__ == "__main__":
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, "neat_config.txt")
     run(config_path)
-     
