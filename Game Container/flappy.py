@@ -1,3 +1,4 @@
+import enum
 import pygame 
 import neat 
 import time
@@ -237,12 +238,14 @@ def receive_genomes(host, port):
                             break
                         data += packet
                     received_genomes = json.loads(data.decode())
+                    print(received_genomes)
+
         except Exception as e:
             print("Error receiving genomes:", e)
 
     thread = threading.Thread(target=receive_thread)
     thread.start()
-    thread.join(timeout=1)  # Adjust the timeout value as needed
+    thread.join(timeout=10)  # Adjust the timeout value as needed
 
     return received_genomes if received_genomes else []
 
@@ -278,8 +281,6 @@ def evaluate_genomes(ge, nets, birds, pipes, score):
             nets.pop(x)
             ge.pop(x)
 
-    print("SCORE : ")
-    print(score)
     return score
 
 def convert_to_neat_genome(received_genome_data):
@@ -443,8 +444,6 @@ def main(genomes, config):
         while x < len(birds):
             bird = birds[x]
             if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
-                if x < len(ge):  # Check if x is within the bounds of the ge list
-                    print("Fitness of genome:", ge[x].fitness)
                 birds.pop(x)
                 nets.pop(x)
                 if x < len(ge):  # Check if x is within the bounds of the ge list
@@ -458,42 +457,28 @@ def main(genomes, config):
 
         # Check if it's time to exchange genomes
         if generation % exchange_interval == 0:
-            good_genomes = [(k, g) for k, g in send_genomes_list if g.fitness > 30]
-            send_genomes(good_genomes, host, port_send)
+            good_genomes = [(k, g) for k, g in send_genomes_list if g.fitness > 1]
+            #send_genomes(good_genomes, host, port_send)
 
             # Receive genomes from Scala/Akka node
             received_genome = receive_genomes(host, port_receive)
-            print("Received genome:", received_genome)
+            #print("Received genome:", received_genome)
 
             
-            if received_genome :#and received_genome_processed:
+            if received_genome :
                 new_genome = convert_to_neat_genome(received_genome)
                 if new_genome:
-                    print("NEW")
+                    #print("NEW")
                     # Add the received genome to the current population
                     genome_key = new_genome["key"]
                     genome = neat.DefaultGenome(genome_key)
                     genome.fitness = new_genome["fitness"]
                     genome.nodes = new_genome["nodes"]
                     genome.connections = new_genome["connections"]
-                    ge.append(genome)
-                    #nets.append(net)                
-                    print("Breeding Birds")
-                    for genome_key, g in genomes:
-                        # Initialize fitness to 0
-                        net = neat.nn.FeedForwardNetwork.create(g, config)
-                        nets.append(net)
-                        #birds.append(Bird(230, 350))
-                        #g.fitness = 0
-                        ge.append(g)
-
-
-                    #birds = Bird(230, 350)
-                    #birds.append(birds)
+                    ge.append(genome)              
+                    #birds.append(Bird(230,350))
                     
-                    # Create a bird for the received genome and add it to the simulation
-                    #bird = Bird(230, 350)
-                    #birds.append(bird)
+
 
 def run(config_path):
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,

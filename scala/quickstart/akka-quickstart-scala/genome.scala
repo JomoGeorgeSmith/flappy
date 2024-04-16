@@ -50,29 +50,23 @@ object Main extends App {
       var line: String = null
       while ({line = in.readLine(); line != null}) {
         val json = Json.parse(line)
-        val genomeKey = (json \ "key").as[Int]
-        val fitness = (json \ "fitness").asOpt[Double].getOrElse(0.0)
-        val nodes = (json \ "nodes").as[List[Node]]
-        val connections = (json \ "connections").as[List[Connection]]
+        val genome = json.as[Genome]
         println("RECEIVING GENOMES")
-        receivedGenomes += Genome(genomeKey, Some(fitness), nodes, connections)
+        receivedGenomes += genome
       }
 
       clientSocket.close()
       println("Client disconnected")
 
-      // Evaluate and filter genomes based on fitness threshold
-      val goodGenomes = receivedGenomes.filter(_.fitness.exists(_ > thresholdFitness))
-
-      // Send only good genomes to the specified host and port
+      // Send received genomes to the specified host and port
       val sendSocket = new Socket(InetAddress.getLocalHost, sendPort)
       val out = new PrintWriter(sendSocket.getOutputStream, true)
 
-      for (genome <- goodGenomes) {
-        val fitness = evaluateGenome(genome.nodes, genome.connections)
+      for (genome <- receivedGenomes) {
         count += 1
-        val responseData = Json.toJson(genome.copy(fitness = Some(fitness)))
+        val responseData = Json.toJson(genome)
         println("SENDING GENOMES")
+        println(responseData)
         out.println(Json.stringify(responseData))
       }
 
@@ -80,11 +74,4 @@ object Main extends App {
       sendSocket.close()
     }
   }
-
-  def evaluateGenome(nodes: List[Node], connections: List[Connection]): Double = {
-    val biasSum = nodes.map(_.bias).sum
-    biasSum
-  }
-
-  val thresholdFitness = 1.0
 }
