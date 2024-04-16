@@ -6,6 +6,7 @@ import random
 import socket 
 import json 
 import threading
+import pickle 
 
 pygame.font.init()
 pygame.init()  
@@ -176,6 +177,109 @@ def draw_window(win, birds, pipes, base, score):
         bird.draw(win)
     pygame.display.update()
 
+def deserialize_genome(serialized_genome):
+    genome = neat.DefaultGenome(serialized_genome['key'])
+    genome.fitness = serialized_genome['fitness']
+    
+    # Create nodes
+    nodes = {}
+    for node_data in serialized_genome['nodes']:
+        node = neat.DefaultNode(node_data['key'])
+        node.bias = node_data['bias']
+        node.response = node_data['response']
+        node.aggregation = node_data['aggregation']
+        node.ntype = node_data['ntype']
+        nodes[node.key] = node
+    genome.nodes = nodes
+    
+    # Create connections
+    connections = {}
+    for conn_data in serialized_genome['connections']:
+        key = conn_data['key']
+        in_node = nodes[conn_data['in_node']]
+        out_node = nodes[conn_data['out_node']]
+        enabled = conn_data['enabled']
+        weight = conn_data['weight']
+        conn = neat.DefaultConnection(key, in_node, out_node, weight)
+        conn.enabled = enabled
+        connections[key] = conn
+    genome.connections = connections
+
+    return genome
+
+class Node:
+    def __init__(self, key):
+        self.key = key
+        self.bias = None
+        self.response = None
+        self.aggregation = None
+        self.ntype = None  # You might need to set a default value or handle the absence of the key appropriately
+
+
+def save_genomez(genome, filename):
+    serialized_genome = {
+        "key": genome.key,
+        "fitness": genome.fitness,
+        "nodes": [{k: v for k, v in node.__dict__.items()} for node in genome.nodes.values()],
+        "connections": [{k: v for k, v in conn.__dict__.items()} for conn in genome.connections.values()]
+    }
+
+    with open(filename, 'wb') as f:
+        pickle.dump(serialized_genome, f)
+
+def load_genomez(filename):
+    with open(filename, 'rb') as f:
+        serialized_genome = pickle.load(f)
+
+    genome = {
+        'key': serialized_genome['key'],
+        'fitness': serialized_genome['fitness'],
+        'nodes': serialized_genome['nodes'],
+        'connections': serialized_genome['connections']
+    }
+
+    #net = neat.nn.FeedForwardNetwork.create(genome, config)
+    print("loading")
+    return genome
+
+def save_genome(genome, filename):
+    print("Saving Genome")
+    with open(filename, 'wb') as f:
+        pickle.dump(genome, f)
+
+def load_genome(filename):
+    print("loading Genome")
+    with open(filename, 'rb') as f:
+        genomes = pickle.load(f)
+        print(genomes)
+        return genomes
+
+
+def create_feedforward_network(genome, config):
+    # Extract nodes and connections from the genome dictionary
+    nodes = {}
+    for node_data in genome['nodes']:
+        node_key = node_data['key']
+        node = neat.Node(node_key)
+        nodes[node_key] = node
+
+    connections = {}
+    for conn_data in genome['connections']:
+        conn_key = conn_data['key']
+        in_node_key, out_node_key = conn_key
+        in_node = nodes[in_node_key]
+        out_node = nodes[out_node_key]
+        weight = conn_data['weight']
+        enabled = conn_data['enabled']
+        connection = neat.Connection(conn_key, in_node, out_node, weight)
+        connection.enabled = enabled
+        connections[conn_key] = connection
+
+    # Create the feedforward network
+    feedforward_network = neat.nn.FeedForwardNetwork.create(genome, config)
+
+    return feedforward_network
+
 def serialize_genome(genome):
     """
     Serialize the genome to a JSON-serializable format.
@@ -255,6 +359,13 @@ def main(genomes, config):
     port_receive = 8081
     generation += 1  
 
+    # Load previously saved top genomes if available
+    trained_genomes_filename = "trained_genome.pkl"
+    if os.path.exists(trained_genomes_filename):
+        trained_genomes = load_genome(trained_genomes_filename)
+    else:
+        trained_genomes = []
+
     # Game simulation and NEAT training
     nets = []
     ge = []
@@ -270,17 +381,31 @@ def main(genomes, config):
     send_genomes_list = []
     received_genomes = []
     
-    # Iterate over genomes
-    for genome_key, g in genomes:
-        # Initialize fitness to 0
-        net = neat.nn.FeedForwardNetwork.create(g, config)
+    # Use top genomes if available
+    if trained_genomes:
+        print("top genome: ", trained_genomes)
+        # trained_genome = deserialize_genome(top_genomes)
+        # trained_net = neat.nn.FeedForwardNetwork.create(trained_genome,config)
+        # trained_bird = Bird(230, 350)
+        # trained_bird.brain = trained_net
+        net = neat.nn.FeedForwardNetwork.create(trained_genomes, config)
         nets.append(net)
         birds.append(Bird(230, 350))
-        g.fitness = 0
-        ge.append(g)
-        # Append genome key to list for sending
-        send_genomes_list.append((genome_key, g))
+        #g.fitness = 0
+        ge.append(trained_genomes)
+    else:
+        # If no top genomes, continue with regular genomes
+        for genome_key, g in genomes:
+            # Initialize fitness to 0
+            net = neat.nn.FeedForwardNetwork.create(g, config)
+            nets.append(net)
+            birds.append(Bird(230, 350))
+            g.fitness = 0
+            ge.append(g)
+            # Append genome key to list for sending
+            #send_genomes_list.append((genome_key, g))
 
+    score_threshold = 5 
     run = True
     while run:
         clock.tick(30)
@@ -336,6 +461,7 @@ def main(genomes, config):
                     g.fitness += 5
             pipes.append(Pipe(700))
 
+
         for r in rem:
             pipes.remove(r)
 
@@ -345,19 +471,29 @@ def main(genomes, config):
                 nets.pop(x)
                 ge.pop(x)
 
+        if score > 10:
+            break
 
         draw_window(win, birds, pipes, base, score)
 
+                
+        # Save top performing genomes to disk
+        # if score != 0 and (score % score_threshold) == 0:
+        #     save_genomes(top_genomes, top_genomes_filename)
+
         # Send genomes to Scala/Akka node
-        send_genomes(send_genomes_list, host, port_send)
+        #send_genomes(send_genomes_list, host, port_send)
 
         # Receive genomes from Scala/Akka node
-        received_genomes = receive_genomes(host, port_receive)
+        #received_genomes = receive_genomes(host, port_receive)
 
         # Integrate received genomes into the population
-        if received_genomes:
-            for received_genome in received_genomes:
-                genomes.append(received_genome)
+        # if received_genomes:
+        #     for received_genome in received_genomes:
+        #         genomes.append(received_genome)
+        #         # Add the received genomes to top genomes as well
+        #         top_genomes.append(received_genome)
+
 
 def run(config_path):
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
@@ -369,6 +505,7 @@ def run(config_path):
     p.add_reporter(stats)
 
     winner = p.run(main, 50)
+    save_genome(winner, "trained_genome.pkl")
 
     pygame.quit()  
 
