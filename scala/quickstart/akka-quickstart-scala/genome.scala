@@ -1,34 +1,18 @@
-import java.io.{BufferedReader, InputStreamReader, PrintWriter}
+import java.io.{FileOutputStream, InputStream, OutputStream}
 import java.net.{ServerSocket, Socket, InetAddress}
-import play.api.libs.json._
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Try, Success, Failure}
 
-case class Node(key: Int, bias: Double, response: Int, activation: String, aggregation: String)
-object Node {
-  implicit val nodeFormat: Format[Node] = Json.format[Node]
-}
-
-case class Connection(key: List[Int], weight: Double, enabled: Boolean)
-object Connection {
-  implicit val connectionFormat: Format[Connection] = Json.format[Connection]
-}
-
-case class Genome(key: Int, fitness: Option[Double], nodes: List[Node], connections: List[Connection])
-object Genome {
-  implicit val genomeFormat: Format[Genome] = Json.format[Genome]
-}
-
 object Main extends App {
   val receivePort = 8080
-  val sendPort = 8081
+  val savePath = "/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/scala/quickstart/akka-quickstart-scala/"
+
   val serverSocket = new ServerSocket(receivePort, 0, InetAddress.getByName("0.0.0.0"))
 
   println("Scala server started")
   val hostName = InetAddress.getLocalHost.getHostName
   println("Host name: " + hostName)
-  var count = 0
 
   while (true) {
     val clientSocket = Try(serverSocket.accept()) match {
@@ -43,35 +27,26 @@ object Main extends App {
     println(s"Client connected from IP address: $clientAddress")
 
     Future {
-      val in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
+      val in: InputStream = clientSocket.getInputStream
+      val fileName: String = "trained_genome.pkl" // Generate a unique filename
+      val fileOutput: OutputStream = new FileOutputStream(savePath + fileName)
 
-      val receivedGenomes = scala.collection.mutable.ListBuffer[Genome]()
+      // Define the buffer size (e.g., 1024 bytes)
+      val bufferSize: Int = 1024
+      val buffer: Array[Byte] = new Array[Byte](bufferSize)
 
-      var line: String = null
-      while ({line = in.readLine(); line != null}) {
-        val json = Json.parse(line)
-        val genome = json.as[Genome]
-        println("RECEIVING GENOMES")
-        receivedGenomes += genome
+      var bytesRead: Int = 0
+
+      // Read from input stream and write to file output stream
+      while ({ bytesRead = in.read(buffer); bytesRead != -1 }) {
+        fileOutput.write(buffer, 0, bytesRead)
       }
 
+      fileOutput.close()
       clientSocket.close()
+
+      println("File received and saved:", fileName)
       println("Client disconnected")
-
-      // Send received genomes to the specified host and port
-      val sendSocket = new Socket(InetAddress.getLocalHost, sendPort)
-      val out = new PrintWriter(sendSocket.getOutputStream, true)
-
-      for (genome <- receivedGenomes) {
-        count += 1
-        val responseData = Json.toJson(genome)
-        println("SENDING GENOMES")
-        println(responseData)
-        out.println(Json.stringify(responseData))
-      }
-
-      out.close()
-      sendSocket.close()
     }
   }
 }

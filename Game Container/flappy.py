@@ -1,4 +1,3 @@
-import enum
 import pygame 
 import neat 
 import time
@@ -7,13 +6,13 @@ import random
 import socket 
 import json 
 import threading
-import pickle
+import pickle 
 
 pygame.font.init()
 pygame.init()  
 
 generation = 0  # Initialize generation counter
-exchange_interval = 1 # Exchange genomes every 10 generations
+exchange_interval = 10  # Exchange genomes every 10 generations
 threshold_fitness = 100  # 
 host_name = ""
 
@@ -178,26 +177,108 @@ def draw_window(win, birds, pipes, base, score):
         bird.draw(win)
     pygame.display.update()
 
+def deserialize_genome(serialized_genome):
+    genome = neat.DefaultGenome(serialized_genome['key'])
+    genome.fitness = serialized_genome['fitness']
+    
+    # Create nodes
+    nodes = {}
+    for node_data in serialized_genome['nodes']:
+        node = neat.DefaultNode(node_data['key'])
+        node.bias = node_data['bias']
+        node.response = node_data['response']
+        node.aggregation = node_data['aggregation']
+        node.ntype = node_data['ntype']
+        nodes[node.key] = node
+    genome.nodes = nodes
+    
+    # Create connections
+    connections = {}
+    for conn_data in serialized_genome['connections']:
+        key = conn_data['key']
+        in_node = nodes[conn_data['in_node']]
+        out_node = nodes[conn_data['out_node']]
+        enabled = conn_data['enabled']
+        weight = conn_data['weight']
+        conn = neat.DefaultConnection(key, in_node, out_node, weight)
+        conn.enabled = enabled
+        connections[key] = conn
+    genome.connections = connections
 
-def save_top_performers(genomes, filename="top_performers.pkl", top_n=5):
-    """
-    Save the top-performing genomes to a file using pickle.
-    """
-    top_genomes = sorted(genomes, key=lambda x: x.fitness, reverse=True)[:top_n]
-    with open(filename, "wb") as f:
-        pickle.dump(top_genomes, f)
+    return genome
 
-def load_top_performers(filename="top_performers.pkl"):
-    """
-    Load the top-performing genomes from a file using pickle.
-    """
-    try:
-        with open(filename, "rb") as f:
-            top_genomes = pickle.load(f)
-            return top_genomes
-    except FileNotFoundError:
-        print("Top performers file not found. No genomes loaded.")
-        return []
+class Node:
+    def __init__(self, key):
+        self.key = key
+        self.bias = None
+        self.response = None
+        self.aggregation = None
+        self.ntype = None  # You might need to set a default value or handle the absence of the key appropriately
+
+
+def save_genomez(genome, filename):
+    serialized_genome = {
+        "key": genome.key,
+        "fitness": genome.fitness,
+        "nodes": [{k: v for k, v in node.__dict__.items()} for node in genome.nodes.values()],
+        "connections": [{k: v for k, v in conn.__dict__.items()} for conn in genome.connections.values()]
+    }
+
+    with open(filename, 'wb') as f:
+        pickle.dump(serialized_genome, f)
+
+def load_genomez(filename):
+    with open(filename, 'rb') as f:
+        serialized_genome = pickle.load(f)
+
+    genome = {
+        'key': serialized_genome['key'],
+        'fitness': serialized_genome['fitness'],
+        'nodes': serialized_genome['nodes'],
+        'connections': serialized_genome['connections']
+    }
+
+    #net = neat.nn.FeedForwardNetwork.create(genome, config)
+    print("loading")
+    return genome
+
+def save_genome(genome, filename):
+    print("Saving Genome")
+    with open(filename, 'wb') as f:
+        pickle.dump(genome, f)
+
+def load_genome(filename):
+    print("loading Genome")
+    with open(filename, 'rb') as f:
+        genomes = pickle.load(f)
+        print(genomes)
+        return genomes
+
+
+def create_feedforward_network(genome, config):
+    # Extract nodes and connections from the genome dictionary
+    nodes = {}
+    for node_data in genome['nodes']:
+        node_key = node_data['key']
+        node = neat.Node(node_key)
+        nodes[node_key] = node
+
+    connections = {}
+    for conn_data in genome['connections']:
+        conn_key = conn_data['key']
+        in_node_key, out_node_key = conn_key
+        in_node = nodes[in_node_key]
+        out_node = nodes[out_node_key]
+        weight = conn_data['weight']
+        enabled = conn_data['enabled']
+        connection = neat.Connection(conn_key, in_node, out_node, weight)
+        connection.enabled = enabled
+        connections[conn_key] = connection
+
+    # Create the feedforward network
+    feedforward_network = neat.nn.FeedForwardNetwork.create(genome, config)
+
+    return feedforward_network
 
 def serialize_genome(genome):
     """
@@ -260,119 +341,30 @@ def receive_genomes(host, port):
                             break
                         data += packet
                     received_genomes = json.loads(data.decode())
-                    print(received_genomes)
-
         except Exception as e:
             print("Error receiving genomes:", e)
 
     thread = threading.Thread(target=receive_thread)
     thread.start()
-    thread.join(timeout=10)  # Adjust the timeout value as needed
+    thread.join(timeout=1)  # Adjust the timeout value as needed
 
-    return received_genomes if received_genomes else []
-
-
-def evaluate_genomes(ge, nets, birds, pipes, score):
-    """
-    Evaluate the fitness of each genome based on game performance.
-    """
-    for x, bird in enumerate(birds):
-        if ge[x]:  # Check if the genome exists
-            ge[x].fitness += 0.1
-        bird.move()
-
-        # Check for collisions with pipes
-        for pipe in pipes:
-            if pipe.collide(bird):
-                ge[x].fitness -= 1
-                birds.pop(x)
-                nets.pop(x)
-                ge.pop(x)
-
-        # Check if the bird passed through a pipe
-        if pipes and not pipes[0].passed and pipes[0].x < bird.x:
-            pipes[0].passed = True
-            score += 1
-            for g in ge:
-                if g:  # Check if the genome exists
-                    g.fitness += 5
-
-        # Check if the bird goes out of bounds
-        if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
-            birds.pop(x)
-            nets.pop(x)
-            ge.pop(x)
-
-    return score
-
-def convert_to_neat_genome(received_genome_data):
-    """
-    Convert received genome data into a custom NEAT genome data structure.
-    """
-    #print("Received genome data string:", received_genome_data)
-
-    # Check if received_genome_data is a string
-    if isinstance(received_genome_data, str):
-        # Check if the string is empty
-        if not received_genome_data.strip():
-            print("Received genome data string is empty.")
-            return None
-        try:
-            # Parse the string into a dictionary
-            received_genome_dict = json.loads(received_genome_data)
-            
-            # Recursively call the function with the parsed dictionary
-            return convert_to_neat_genome(received_genome_dict)
-        except Exception as e:
-            print("Error parsing string to dictionary:", e)
-            return None
-    
-    # Check if received_genome_data is a dictionary
-    elif isinstance(received_genome_data, dict):
-        # Ensure received_genome_data has all required keys
-        required_keys = ["key", "fitness", "nodes", "connections"]
-        if all(key in received_genome_data for key in required_keys):
-            try:
-                # Extract genome attributes from the received data
-                key = received_genome_data["key"]
-                fitness = received_genome_data["fitness"]
-                nodes = received_genome_data["nodes"]
-                connections = received_genome_data["connections"]
-
-                # Create a new custom NEAT genome object and populate its attributes
-                new_genome = {
-                    "key": key,
-                    "fitness": fitness,
-                    "nodes": nodes,
-                    "connections": connections
-                }
-
-                # Return the converted NEAT genome
-                print("Succesful Conversion")
-                return new_genome
-            except Exception as e:
-                print("Error converting genome:", e)
-                return None
-        else:
-            print("Received genome data is incomplete.")
-            return None
-    
-    # Handle other types of input data
-    else:
-        print("Received genome data is not in the correct format.")
-        return None
-
-
+    return received_genomes
 
 def main(genomes, config):
     pygame.font.init()
-    pygame.init()
-    global generation
+    pygame.init()  
+    global generation  
     host = "Jomos-MBP.lan"
     port_send = 8080
     port_receive = 8081
-    generation += 1
-    global_pool_genomes  = []
+    generation += 1  
+
+    # Load previously saved top genomes if available
+    trained_genomes_filename = "trained_genome.pkl"
+    if os.path.exists(trained_genomes_filename):
+        trained_genomes = load_genome(trained_genomes_filename)
+    else:
+        trained_genomes = []
 
     # Game simulation and NEAT training
     nets = []
@@ -385,27 +377,30 @@ def main(genomes, config):
     win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
     score = 0
     clock = pygame.time.Clock()
-
+        
     send_genomes_list = []
     received_genomes = []
-
-    top_performers = load_top_performers()
-
-    # # Iterate over genomes
-    for genome_key, g in genomes:
-        # Initialize fitness to 0
-        net = neat.nn.FeedForwardNetwork.create(g, config)
+    
+    # Use top genomes if available
+    if trained_genomes:
+        print("top genome: ", trained_genomes)
+        net = neat.nn.FeedForwardNetwork.create(trained_genomes, config)
         nets.append(net)
         birds.append(Bird(230, 350))
-        g.fitness = 0
-        ge.append(g)
-        # Append genome key to list for sending
-        send_genomes_list.append((genome_key, g))
+        #g.fitness = 0
+        ge.append(trained_genomes)
+    else:
+        # If no top genomes, continue with regular genomes
+        for genome_key, g in genomes:
+            # Initialize fitness to 0
+            net = neat.nn.FeedForwardNetwork.create(g, config)
+            nets.append(net)
+            birds.append(Bird(230, 350))
+            g.fitness = 0
+            ge.append(g)
 
-    if top_performers:
-        for genome in top_performers:
-            ge.append(genome)
 
+    score_threshold = 5 
     run = True
     while run:
         clock.tick(30)
@@ -425,23 +420,15 @@ def main(genomes, config):
 
         # Iterate over birds
         for x, bird in enumerate(birds):
-            if x < len(ge):  # Check if x is within the bounds of the ge list
-                if ge[x]:  # Check if the genome exists
-                    # Extract neural network from genome
-                    net = neat.nn.FeedForwardNetwork.create(ge[x], config)
-                    # Normalize inputs
-                    normalized_inputs = [
-                        bird.y / WIN_HEIGHT,  # Normalize bird's Y-coordinate
-                        (pipes[pipe_ind].height - bird.y) / WIN_HEIGHT,  # Normalize distance to top pipe
-                        (pipes[pipe_ind].bottom - bird.y) / WIN_HEIGHT  # Normalize distance to bottom pipe
-                    ]
-                    # Use neural network to make decision
-                    output = net.activate(normalized_inputs)
-                    # Threshold output to decide whether to jump
-                    if output[0] > 0.5:
-                        bird.jump()
+            if ge[x]:  # Check if the genome exists
+                ge[x].fitness += 0.1
             bird.move()
 
+            # Use the neural network to make decisions
+            output = nets[birds.index(bird)].activate(
+                (bird.y, abs(bird.y - pipes[pipe_ind].height), abs(bird.y - pipes[pipe_ind].bottom)))
+            if output[0] > 0.5:
+                bird.jump()
         base.move()
 
         rem = []
@@ -449,12 +436,11 @@ def main(genomes, config):
         for pipe in pipes:
             for x, bird in enumerate(birds):
                 if pipe.collide(bird):
-                    if x < len(ge):  # Check if x is within the bounds of the ge list
-                        ge[x].fitness -= 1
+                    ge[x].fitness -= 1
                     birds.pop(x)
                     nets.pop(x)
-                    if x < len(ge):  # Check if x is within the bounds of the ge list
-                        ge.pop(x)
+                    ge.pop(x)
+
 
             if not pipe.passed and pipe.x < bird.x:
                 pipe.passed = True
@@ -470,54 +456,38 @@ def main(genomes, config):
                     g.fitness += 5
             pipes.append(Pipe(700))
 
+
         for r in rem:
             pipes.remove(r)
 
-        x = 0
-        while x < len(birds):
-            bird = birds[x]
+        for x, bird in enumerate(birds):
             if bird.y + bird.img.get_height() >= 730 or bird.y < 0:
                 birds.pop(x)
                 nets.pop(x)
-                if x < len(ge):  # Check if x is within the bounds of the ge list
-                    ge.pop(x)
-            else:
-                x += 1
+                ge.pop(x)
 
-        # Evaluate genomes and save top performers after each generation
-        score = evaluate_genomes(ge, nets, birds, pipes, score)
-        if score >= threshold_fitness:
-            save_top_performers(ge)
+        if score > 10:
+            break
 
         draw_window(win, birds, pipes, base, score)
 
+                
+        # Save top performing genomes to disk
+        # if score != 0 and (score % score_threshold) == 0:
+        #     save_genomes(top_genomes, top_genomes_filename)
+
+        # Send genomes to Scala/Akka node
+        #send_genomes(send_genomes_list, host, port_send)
 
         # Receive genomes from Scala/Akka node
-        received_genome = receive_genomes(host, port_receive)
-        if received_genome:
-            new_genome = convert_to_neat_genome(received_genome)
-            if new_genome:
-                # Add the received genome to the current population
-                genome_key = new_genome["key"]
-                genome = neat.DefaultGenome(genome_key)
-                genome.fitness = new_genome["fitness"]
-                genome.nodes = new_genome["nodes"]
-                
-                # Create connections dictionary from received data
-                connections = {}
-                for conn_data in new_genome["connections"]:
-                    # Ensure the connection data is valid
-                    if "key" in conn_data and "weight" in conn_data:
-                        conn_key = tuple(conn_data["key"])
-                        connections[conn_key] = conn_data["weight"]
-                    else:
-                        print("Invalid connection data:", conn_data)
-                
-                genome.connections = connections
-                print("Learning")
-                ge.append(genome)
+        #received_genomes = receive_genomes(host, port_receive)
 
-
+        # Integrate received genomes into the population
+        # if received_genomes:
+        #     for received_genome in received_genomes:
+        #         genomes.append(received_genome)
+        #         # Add the received genomes to top genomes as well
+        #         top_genomes.append(received_genome)
 
 
 def run(config_path):
@@ -530,6 +500,7 @@ def run(config_path):
     p.add_reporter(stats)
 
     winner = p.run(main, 50)
+    save_genome(winner, "trained_genome.pkl")
 
     pygame.quit()  
 
@@ -537,3 +508,4 @@ if __name__ == "__main__":
     local_dir = os.path.dirname(__file__)
     config_path = os.path.join(local_dir, "neat_config.txt")
     run(config_path)
+     
