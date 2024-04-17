@@ -11,6 +11,8 @@ import pickle
 pygame.font.init()
 pygame.init()  
 
+received_data = b''  
+
 generation = 0  # Initialize generation counter
 exchange_interval = 10  # Exchange genomes every 10 generations
 threshold_fitness = 100  # 
@@ -191,7 +193,7 @@ def save_genome(genome, filename):
         pickle.dump(genome, f)
 
 def load_genome(filename):
-    print("loading Genome")
+    print("loading Genome from disk")
     with open(filename, 'rb') as f:
         genomes = pickle.load(f)
         return genomes
@@ -208,63 +210,63 @@ def serialize_genome(genome):
     }
     return serialized_genome
 
-def send_genomes(genomes_list, host, port):
-    """
-    Send genomes to the specified host and port using socket communication.
-    """
-    def send_thread():
-        s = None  # Initialize socket variable
-        try:
-            # Connect to the host and port
-            print("SENDING")
-            s = socket.create_connection((host, port), timeout=1)
-            for genome_key, genome in genomes_list:
-                # Serialize the genome
-                serialized_genome = serialize_genome(genome)
-                # Send the serialized genome over the socket
-                s.sendall(json.dumps(serialized_genome).encode())
-        except socket.timeout:
-            print("Connection to Scala host timed out.")
-        except ConnectionRefusedError:
-            print("Connection to Scala host refused.")
-        except Exception as e:
-            print("Error sending genomes:", e)
-        finally:
-            if s:  # Check if socket exists before closing
-                s.close()
-    thread = threading.Thread(target=send_thread)
-    thread.start()
+def request_genome(host, port):
+    print("Checking Host For Genomes")
+    try:
+        # Create a socket connection
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # Connect to the Scala server on the receive port
+            s.connect((host, port))
+            # Send the request message
+            s.sendall(b"REQUEST_GENOME")
+            # Receive the file data
+            received_data = b""
+            while True:
+                data = s.recv(1024)
+                if not data:
+                    break
+                received_data += data
+            # Write the received data to a file
+            with open("trained_genome.pkl", "wb") as f:
+                f.write(received_data)
+            print("Received and saved the genome file.")
+            return True  # Return True indicating successful reception
+    except ConnectionRefusedError:
+        print("Connection to Scala host refused.")
+    except Exception as e:
+        print("Error requesting genome:", e)
+    return False  # Return False indicating failure
 
-def receive_genomes(host, port):
-    """
-    Receive genomes from the Scala server.
-    """
-    received_genomes = None
+def get_genome(host, port):
+    # Create a socket object
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    def receive_thread():
-        nonlocal received_genomes
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((host, port))
-                s.listen()
-                conn, addr = s.accept()
-                print("RECEIVING GENOMES")
-                with conn:
-                    data = b''
-                    while True:
-                        packet = conn.recv(4096)
-                        if not packet:
-                            break
-                        data += packet
-                    received_genomes = json.loads(data.decode())
-        except Exception as e:
-            print("Error receiving genomes:", e)
+    try:
+        # Connect to the server
+        client_socket.connect((host, port))
 
-    thread = threading.Thread(target=receive_thread)
-    thread.start()
-    thread.join(timeout=1)  # Adjust the timeout value as needed
+        # Send the message to trigger SEND_GENOME action
+        message = b"SEND_GENOME"
+        client_socket.sendall(message)
 
-    return received_genomes
+        # Receive the file data from the server
+        received_data = b""
+        while True:
+            data = client_socket.recv(1024)
+            if not data:
+                break
+            received_data += data
+
+        # Save the received file data to a file
+        with open("received_genome.pkl", "wb") as f:
+            f.write(received_data)
+
+        print("File received successfully as 'received_genome.pkl'")
+    except Exception as e:
+        print("Error:", e)
+    finally:
+        # Close the socket connection
+        client_socket.close()
 
 genome_sent = False
 
@@ -314,12 +316,26 @@ def main(genomes, config):
     port_receive = 8081
     generation += 1  
 
-    # Load previously saved top genomes if available
-    trained_genomes_filename = "trained_genome.pkl"
-    if os.path.exists(trained_genomes_filename):
-        trained_genomes = load_genome(trained_genomes_filename)
+
+    get_genome(host, port_receive)
+
+    #ee = request_genome(host, 8080)
+    ee = False
+
+    if ee:
+            trained_genomes_filename = "trained_genome.pkl"
+            if os.path.exists(trained_genomes_filename):
+                trained_genomes = load_genome(trained_genomes_filename)
+            else:
+                trained_genomes = []
+
     else:
-        trained_genomes = []
+        # Load previously saved top genomes if available
+        trained_genomes_filename = "trained_genome.pkl"
+        if os.path.exists(trained_genomes_filename):
+            trained_genomes = load_genome(trained_genomes_filename)
+        else:
+            trained_genomes = []
 
     # Game simulation and NEAT training
     nets = []
