@@ -198,74 +198,44 @@ def load_genome(filename):
         genomes = pickle.load(f)
         return genomes
 
-def serialize_genome(genome):
-    """
-    Serialize the genome to a JSON-serializable format.
-    """
-    serialized_genome = {
-        "key": genome.key,
-        "fitness": genome.fitness,
-        "nodes": [{k: v for k, v in node.__dict__.items()} for node in genome.nodes.values()],
-        "connections": [{k: v for k, v in conn.__dict__.items()} for conn in genome.connections.values()]
-    }
-    return serialized_genome
 
+save_path = '/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/'
 def request_genome(host, port):
-    print("Checking Host For Genomes")
-    try:
-        # Create a socket connection
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            # Connect to the Scala server on the receive port
-            s.connect((host, port))
-            # Send the request message
-            s.sendall(b"REQUEST_GENOME")
-            # Receive the file data
-            received_data = b""
-            while True:
-                data = s.recv(1024)
-                if not data:
-                    break
-                received_data += data
-            # Write the received data to a file
-            with open("trained_genome.pkl", "wb") as f:
-                f.write(received_data)
-            print("Received and saved the genome file.")
-            return True  # Return True indicating successful reception
-    except ConnectionRefusedError:
-        print("Connection to Scala host refused.")
-    except Exception as e:
-        print("Error requesting genome:", e)
-    return False  # Return False indicating failure
-
-def get_genome(host, port):
     # Create a socket object
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
+    
     try:
-        # Connect to the server
         client_socket.connect((host, port))
-
-        # Send the message to trigger SEND_GENOME action
-        message = b"SEND_GENOME"
-        client_socket.sendall(message)
-
-        # Receive the file data from the server
-        received_data = b""
-        while True:
-            data = client_socket.recv(1024)
-            if not data:
-                break
-            received_data += data
-
-        # Save the received file data to a file
-        with open("received_genome.pkl", "wb") as f:
-            f.write(received_data)
-
-        print("File received successfully as 'received_genome.pkl'")
+        print(f"Connected to server at {host}:{port}")
+        
+        # Send a request to receive the file
+        client_socket.sendall("SEND_GENOME".encode())
+        
+        # Receive the "READY" message
+        ready_message = client_socket.recv(1024)
+        if ready_message.decode() == "READY\n":
+            print("Received ready message. Starting file transfer...")
+            
+            # Open a file for writing
+            file_path = save_path + "trained_genome.pkl"
+            with open(file_path, "wb") as file:
+                while True:
+                    # Receive data from the server
+                    data = client_socket.recv(1024)
+                    if not data:
+                        break
+                    # Write received data to the file
+                    file.write(data)
+            
+            print("File received and saved successfully.")
+        else:
+            print("Unexpected message received. Aborting file transfer.")
+        
     except Exception as e:
-        print("Error:", e)
+        print("An error occurred:", e)
+    
     finally:
-        # Close the socket connection
+        # Close the client socket
         client_socket.close()
 
 genome_sent = False
@@ -317,7 +287,7 @@ def main(genomes, config):
     generation += 1  
 
 
-    get_genome(host, port_receive)
+    request_genome(host, port_receive)
 
     #ee = request_genome(host, 8080)
     ee = False

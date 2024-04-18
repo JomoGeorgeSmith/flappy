@@ -11,140 +11,123 @@ object Main extends App {
   val savePath = "/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/scala/quickstart/akka-quickstart-scala/"
 
   // Create an actor system
-  val system = ActorSystem("ReceiveActorSystem")
+  val system = ActorSystem("FileTransferActorSystem")
 
-  // Create an instance of ReceiveActor
-  val receiveActor = system.actorOf(Props(new ReceiveActor(savePath)), "receiveActor")
+  // Create an instance of FileTransferActor
+  val fileTransferActor = system.actorOf(Props(new FileTransferActor(savePath)), "fileTransferActor")
 
-  // Create an instance of SendActor
-  val sendActor = system.actorOf(Props(new SendActor(savePath)), "sendActor")
-
-  // Start the server
-  val server = new Server(receivePort, receiveActor, sendPort)
-  server.start()
+  // Start the servers
+  val receiveServer = new FileTransferServer(receivePort, fileTransferActor)
+  val sendServer = new FileTransferServer(sendPort, fileTransferActor)
+  receiveServer.start()
+  sendServer.start()
 }
 
-class Server(receivePort: Int, receiveActor: akka.actor.ActorRef, sendPort: Int) {
-  val serverSocket = new ServerSocket(receivePort, 0, InetAddress.getByName("0.0.0.0"))
+class FileTransferServer(port: Int, fileTransferActor: akka.actor.ActorRef) {
+  private val serverSocket = new ServerSocket(port, 0, InetAddress.getByName("0.0.0.0"))
 
-  println("Scala server started")
+  println(s"Scala server started on port $port")
   val hostName = InetAddress.getLocalHost.getHostName
   println("Host name: " + hostName)
 
   def start(): Unit = {
-    while (true) {
-      val clientSocket = Try(serverSocket.accept()) match {
-        case Success(socket) => socket
-        case Failure(exception) =>
-          println("Error accepting connection:", exception)
-          serverSocket.close()
-          sys.exit(1)
-      }
+    Future {
+      while (true) {
+        val clientSocket = Try {
+          serverSocket.accept()
+        } match {
+          case Success(socket) => socket
+          case Failure(exception) =>
+            println("Error accepting connection:", exception)
+            serverSocket.close()
+            sys.exit(1)
+        }
 
-      // Get the client's IP address
-      val clientAddress = clientSocket.getInetAddress.getHostAddress
-      println(s"Client connected from IP address: $clientAddress")
+        // Get the client's IP address
+        val clientAddress = clientSocket.getInetAddress.getHostAddress
+        println(s"Client connected from IP address: $clientAddress")
+        println(clientSocket.getLocalPort)
 
-      // Check if the request is for sending the file
-      if (clientSocket.getPort == sendPort) {
-        // Send clientSocket to the SendActor
-        receiveActor ! clientSocket
-      } else {
-        // Send clientSocket to the ReceiveActor
-        receiveActor ! clientSocket
+        // Route the clientSocket to the appropriate actor based on the port
+        if (port == Main.sendPort) {
+          println("SENDING")
+          // Send clientSocket to the FileTransferActor with the request type "SEND_GENOME"
+          fileTransferActor ! (clientSocket, "SEND_GENOME")
+        } else {
+          // Send clientSocket to the FileTransferActor with the request type "RECEIVE_GENOME"
+          fileTransferActor ! (clientSocket, "RECEIVE_GENOME")
+        }
       }
     }
   }
 }
 
-class ReceiveActor(savePath: String) extends Actor {
+class FileTransferActor(savePath: String) extends Actor {
   def receive: Receive = {
-    case (clientSocket: Socket, "REQUEST_GENOME") =>
-      Future {
-        val fileName: String = "trained_genome.pkl"
-        val filePath: String = savePath + fileName
-        val file = new File(filePath)
+    case (clientSocket: Socket, "RECEIVE_GENOME") =>
+      // Handle receiving file
+      receiveFile(clientSocket)
+    case (clientSocket: Socket, "SEND_GENOME") =>
+      // Handle sending file
+      sendFile(clientSocket)
+    case _ =>
+      println("Unsupported request type")
+  }
 
-        if (file.exists()) {
-          val out: OutputStream = clientSocket.getOutputStream
-          val fis = new FileInputStream(file)
-          val bufferSize: Int = 1024
-          val buffer: Array[Byte] = new Array[Byte](bufferSize)
-          var bytesRead = 0
+  def receiveFile(clientSocket: Socket): Unit = {
+    Future {
+      val in: InputStream = clientSocket.getInputStream
+      val fileName: String = "trained_genome.pkl" // Or any desired filename
+      val filePath: String = savePath + fileName
+      val fileOutput: OutputStream = new FileOutputStream(filePath)
 
-          // Send the file over the socket
-          while ({ bytesRead = fis.read(buffer); bytesRead != -1 }) {
-            out.write(buffer, 0, bytesRead)
-          }
+      // Define the buffer size (e.g., 1024 bytes)
+      val bufferSize: Int = 1024
+      val buffer: Array[Byte] = new Array[Byte](bufferSize)
 
-          fis.close()
-          out.close()
-          clientSocket.close()
+      var bytesRead: Int = 0
 
-          println("File sent:", fileName)
-          println("Client disconnected")
-        } else {
-          println("File does not exist:", fileName)
-          clientSocket.close()
-        }
+      // Read from input stream and write to file output stream
+      while ({ bytesRead = in.read(buffer); bytesRead != -1 }) {
+        fileOutput.write(buffer, 0, bytesRead)
       }
-    case clientSocket: Socket =>
-      Future {
-        val in: InputStream = clientSocket.getInputStream
-        val fileName: String = "trained_genome.pkl" // Or any desired filename
-        val filePath: String = savePath + fileName
-        val fileOutput: OutputStream = new FileOutputStream(filePath)
 
-        // Define the buffer size (e.g., 1024 bytes)
+      fileOutput.close()
+      clientSocket.close()
+
+      println("File received and saved:", fileName)
+      println("Client disconnected")
+    }
+  }
+
+  def sendFile(clientSocket: Socket): Unit = {
+    Future {
+      val fileName: String = "trained_genome.pkl"
+      val filePath: String = savePath + fileName
+      val file = new File(filePath)
+      if (file.exists()) {
+        val out: OutputStream = clientSocket.getOutputStream
+        val fis = new FileInputStream(file)
         val bufferSize: Int = 1024
         val buffer: Array[Byte] = new Array[Byte](bufferSize)
+        var bytesRead = 0
 
-        var bytesRead: Int = 0
-
-        // Read from input stream and write to file output stream
-        while ({ bytesRead = in.read(buffer); bytesRead != -1 }) {
-          fileOutput.write(buffer, 0, bytesRead)
+        // Send the file over the socket
+        out.write("READY\n".getBytes) // Send "READY" message to client
+        while ({ bytesRead = fis.read(buffer); bytesRead != -1 }) {
+          out.write(buffer, 0, bytesRead)
         }
 
-        fileOutput.close()
+        fis.close()
+        out.close()
         clientSocket.close()
 
-        println("File received and saved:", fileName)
+        println("File sent:", fileName)
         println("Client disconnected")
+      } else {
+        println("File does not exist:", fileName)
+        clientSocket.close()
       }
-  }
-}
-
-class SendActor(savePath: String) extends Actor {
-  def receive: Receive = {
-    case (clientSocket: Socket, "SEND_GENOME") =>
-      Future {
-        val fileName: String = "trained_genome.pkl"
-        val filePath: String = savePath + fileName
-        val file = new File(filePath)
-
-        if (file.exists()) {
-          val out: OutputStream = clientSocket.getOutputStream
-          val fis = new FileInputStream(file)
-          val bufferSize: Int = 1024
-          val buffer: Array[Byte] = new Array[Byte](bufferSize)
-          var bytesRead = 0
-
-          // Send the file over the socket
-          while ({ bytesRead = fis.read(buffer); bytesRead != -1 }) {
-            out.write(buffer, 0, bytesRead)
-          }
-
-          fis.close()
-          out.close()
-          clientSocket.close()
-
-          println("File sent:", fileName)
-          println("Client disconnected")
-        } else {
-          println("File does not exist:", fileName)
-          clientSocket.close()
-        }
-      }
+    }
   }
 }
