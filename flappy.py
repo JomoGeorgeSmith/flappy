@@ -228,6 +228,13 @@ def request_genome(host, port):
                     file.write(data)
             
             print("File received and saved successfully.")
+            
+            # Wait for confirmation message from server
+            confirmation_message = client_socket.recv(1024)
+            if confirmation_message.decode() == "GENOME_SENT\n":
+                print("Server confirmed genome sent.")
+                global genome_sent
+                genome_sent = True
         else:
             print("Unexpected message received. Aborting file transfer.")
         

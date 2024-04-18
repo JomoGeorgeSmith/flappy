@@ -100,34 +100,37 @@ class FileTransferActor(savePath: String) extends Actor {
     }
   }
 
-  def sendFile(clientSocket: Socket): Unit = {
-    Future {
-      val fileName: String = "trained_genome.pkl"
-      val filePath: String = savePath + fileName
-      val file = new File(filePath)
-      if (file.exists()) {
-        val out: OutputStream = clientSocket.getOutputStream
-        val fis = new FileInputStream(file)
-        val bufferSize: Int = 1024
-        val buffer: Array[Byte] = new Array[Byte](bufferSize)
-        var bytesRead = 0
+def sendFile(clientSocket: Socket): Unit = {
+  Future {
+    val fileName: String = "trained_genome.pkl"
+    val filePath: String = savePath + fileName
+    val file = new File(filePath)
+    if (file.exists()) {
+      val out: OutputStream = clientSocket.getOutputStream
+      val fis = new FileInputStream(file)
+      val bufferSize: Int = 1024
+      val buffer: Array[Byte] = new Array[Byte](bufferSize)
+      var bytesRead = 0
 
-        // Send the file over the socket
-        out.write("READY\n".getBytes) // Send "READY" message to client
-        while ({ bytesRead = fis.read(buffer); bytesRead != -1 }) {
-          out.write(buffer, 0, bytesRead)
-        }
-
-        fis.close()
-        out.close()
-        clientSocket.close()
-
-        println("File sent:", fileName)
-        println("Client disconnected")
-      } else {
-        println("File does not exist:", fileName)
-        clientSocket.close()
+      // Send the file over the socket
+      out.write("READY\n".getBytes) // Send "READY" message to client
+      while ({ bytesRead = fis.read(buffer); bytesRead != -1 }) {
+        out.write(buffer, 0, bytesRead)
       }
+
+      // Send confirmation message to indicate file transfer completion
+      out.write("GENOME_SENT\n".getBytes)
+
+      fis.close()
+      out.close()
+      clientSocket.close()
+
+      println("File sent:", fileName)
+      println("Client disconnected")
+    } else {
+      println("File does not exist:", fileName)
+      clientSocket.close()
     }
   }
+}
 }
