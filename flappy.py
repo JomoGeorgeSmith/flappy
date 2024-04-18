@@ -295,8 +295,6 @@ def main(genomes, config):
 
 
     request_genome(host, port_receive)
-
-    #ee = request_genome(host, 8080)
     ee = False
 
     if ee:

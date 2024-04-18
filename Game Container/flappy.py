@@ -11,6 +11,8 @@ import pickle
 pygame.font.init()
 pygame.init()  
 
+received_data = b''  
+
 generation = 0  # Initialize generation counter
 exchange_interval = 10  # Exchange genomes every 10 generations
 threshold_fitness = 100  # 
@@ -177,36 +179,6 @@ def draw_window(win, birds, pipes, base, score):
         bird.draw(win)
     pygame.display.update()
 
-def deserialize_genome(serialized_genome):
-    genome = neat.DefaultGenome(serialized_genome['key'])
-    genome.fitness = serialized_genome['fitness']
-    
-    # Create nodes
-    nodes = {}
-    for node_data in serialized_genome['nodes']:
-        node = neat.DefaultNode(node_data['key'])
-        node.bias = node_data['bias']
-        node.response = node_data['response']
-        node.aggregation = node_data['aggregation']
-        node.ntype = node_data['ntype']
-        nodes[node.key] = node
-    genome.nodes = nodes
-    
-    # Create connections
-    connections = {}
-    for conn_data in serialized_genome['connections']:
-        key = conn_data['key']
-        in_node = nodes[conn_data['in_node']]
-        out_node = nodes[conn_data['out_node']]
-        enabled = conn_data['enabled']
-        weight = conn_data['weight']
-        conn = neat.DefaultConnection(key, in_node, out_node, weight)
-        conn.enabled = enabled
-        connections[key] = conn
-    genome.connections = connections
-
-    return genome
-
 class Node:
     def __init__(self, key):
         self.key = key
@@ -215,142 +187,104 @@ class Node:
         self.aggregation = None
         self.ntype = None  # You might need to set a default value or handle the absence of the key appropriately
 
-
-def save_genomez(genome, filename):
-    serialized_genome = {
-        "key": genome.key,
-        "fitness": genome.fitness,
-        "nodes": [{k: v for k, v in node.__dict__.items()} for node in genome.nodes.values()],
-        "connections": [{k: v for k, v in conn.__dict__.items()} for conn in genome.connections.values()]
-    }
-
-    with open(filename, 'wb') as f:
-        pickle.dump(serialized_genome, f)
-
-def load_genomez(filename):
-    with open(filename, 'rb') as f:
-        serialized_genome = pickle.load(f)
-
-    genome = {
-        'key': serialized_genome['key'],
-        'fitness': serialized_genome['fitness'],
-        'nodes': serialized_genome['nodes'],
-        'connections': serialized_genome['connections']
-    }
-
-    #net = neat.nn.FeedForwardNetwork.create(genome, config)
-    print("loading")
-    return genome
-
 def save_genome(genome, filename):
     print("Saving Genome")
     with open(filename, 'wb') as f:
         pickle.dump(genome, f)
 
 def load_genome(filename):
-    print("loading Genome")
+    print("loading Genome from disk")
     with open(filename, 'rb') as f:
         genomes = pickle.load(f)
-        print(genomes)
         return genomes
 
 
-def create_feedforward_network(genome, config):
-    # Extract nodes and connections from the genome dictionary
-    nodes = {}
-    for node_data in genome['nodes']:
-        node_key = node_data['key']
-        node = neat.Node(node_key)
-        nodes[node_key] = node
+save_path = '/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/'
+def request_genome(host, port):
+    # Create a socket object
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    try:
+        client_socket.connect((host, port))
+        print(f"Connected to server at {host}:{port}")
+        
+        # Send a request to receive the file
+        client_socket.sendall("SEND_GENOME".encode())
+        
+        # Receive the "READY" message
+        ready_message = client_socket.recv(1024)
+        if ready_message.decode() == "READY\n":
+            print("Received ready message. Starting file transfer...")
+            
+            # Open a file for writing
+            file_path = save_path + "trained_genome.pkl"
+            with open(file_path, "wb") as file:
+                while True:
+                    # Receive data from the server
+                    data = client_socket.recv(1024)
+                    if not data:
+                        break
+                    # Write received data to the file
+                    file.write(data)
+            
+            print("File received and saved successfully.")
+            
+            # Wait for confirmation message from server
+            confirmation_message = client_socket.recv(1024)
+            if confirmation_message.decode() == "GENOME_SENT\n":
+                print("Server confirmed genome sent.")
+                global genome_sent
+                genome_sent = True
+        else:
+            print("Unexpected message received. Aborting file transfer.")
+        
+    except Exception as e:
+        print("An error occurred:", e)
+    
+    finally:
+        # Close the client socket
+        client_socket.close()
 
-    connections = {}
-    for conn_data in genome['connections']:
-        conn_key = conn_data['key']
-        in_node_key, out_node_key = conn_key
-        in_node = nodes[in_node_key]
-        out_node = nodes[out_node_key]
-        weight = conn_data['weight']
-        enabled = conn_data['enabled']
-        connection = neat.Connection(conn_key, in_node, out_node, weight)
-        connection.enabled = enabled
-        connections[conn_key] = connection
+genome_sent = False
 
-    # Create the feedforward network
-    feedforward_network = neat.nn.FeedForwardNetwork.create(genome, config)
-
-    return feedforward_network
-
-def serialize_genome(genome):
+def send_genome(filename, host, port):
     """
-    Serialize the genome to a JSON-serializable format.
+    Send a single genome file to the specified host and port using socket communication.
     """
-    serialized_genome = {
-        "key": genome.key,
-        "fitness": genome.fitness,
-        "nodes": [{k: v for k, v in node.__dict__.items()} for node in genome.nodes.values()],
-        "connections": [{k: v for k, v in conn.__dict__.items()} for conn in genome.connections.values()]
-    }
-    return serialized_genome
-
-def send_genomes(genomes_list, host, port):
-    """
-    Send genomes to the specified host and port using socket communication.
-    """
-    def send_thread():
-        s = None  # Initialize socket variable
+    def send_genome_thread(filename, host, port):
+        global genome_sent  # Access the outer scope variable
         try:
-            # Connect to the host and port
-            print("SENDING")
-            s = socket.create_connection((host, port), timeout=1)
-            for genome_key, genome in genomes_list:
-                # Serialize the genome
-                serialized_genome = serialize_genome(genome)
-                # Send the serialized genome over the socket
-                s.sendall(json.dumps(serialized_genome).encode())
+            if not genome_sent:  # Check if the genome has not been sent within the interval
+                # Connect to the host and port
+                print("SENDING GENOME:", filename)
+                with socket.create_connection((host, port), timeout=1) as s:
+                    # Open the file and read its contents
+                    with open(filename, 'rb') as f:
+                        data = f.read()
+                    # Send the file contents over the socket
+                    s.sendall(data)
+                # Set the flag to indicate that the genome has been sent
+                genome_sent = True
+                print("Genome sent successfully.")
+            else:
+                print("Genome already sent within the interval.")
         except socket.timeout:
             print("Connection to Scala host timed out.")
         except ConnectionRefusedError:
             print("Connection to Scala host refused.")
         except Exception as e:
-            print("Error sending genomes:", e)
-        finally:
-            if s:  # Check if socket exists before closing
-                s.close()
-    thread = threading.Thread(target=send_thread)
+            print("Error sending genome:", e)
+
+    # Start a new thread to send the genome file
+    thread = threading.Thread(target=send_genome_thread, args=(filename, host, port))
     thread.start()
 
-def receive_genomes(host, port):
-    """
-    Receive genomes from the Scala server.
-    """
-    received_genomes = None
-
-    def receive_thread():
-        nonlocal received_genomes
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((host, port))
-                s.listen()
-                conn, addr = s.accept()
-                print("RECEIVING GENOMES")
-                with conn:
-                    data = b''
-                    while True:
-                        packet = conn.recv(4096)
-                        if not packet:
-                            break
-                        data += packet
-                    received_genomes = json.loads(data.decode())
-        except Exception as e:
-            print("Error receiving genomes:", e)
-
-    thread = threading.Thread(target=receive_thread)
+    # Start a new thread to send the genome file
+    thread = threading.Thread(target=send_genome_thread, args=(filename, host, port))
     thread.start()
-    thread.join(timeout=1)  # Adjust the timeout value as needed
-
-    return received_genomes
 
 def main(genomes, config):
+    global genome_sent
     pygame.font.init()
     pygame.init()  
     global generation  
@@ -359,12 +293,26 @@ def main(genomes, config):
     port_receive = 8081
     generation += 1  
 
-    # Load previously saved top genomes if available
-    trained_genomes_filename = "trained_genome.pkl"
-    if os.path.exists(trained_genomes_filename):
-        trained_genomes = load_genome(trained_genomes_filename)
+
+    request_genome(host, port_receive)
+
+    #ee = request_genome(host, 8080)
+    ee = False
+
+    if ee:
+            trained_genomes_filename = "trained_genome.pkl"
+            if os.path.exists(trained_genomes_filename):
+                trained_genomes = load_genome(trained_genomes_filename)
+            else:
+                trained_genomes = []
+
     else:
-        trained_genomes = []
+        # Load previously saved top genomes if available
+        trained_genomes_filename = "trained_genome.pkl"
+        if os.path.exists(trained_genomes_filename):
+            trained_genomes = load_genome(trained_genomes_filename)
+        else:
+            trained_genomes = []
 
     # Game simulation and NEAT training
     nets = []
@@ -383,7 +331,6 @@ def main(genomes, config):
     
     # Use top genomes if available
     if trained_genomes:
-        print("top genome: ", trained_genomes)
         net = neat.nn.FeedForwardNetwork.create(trained_genomes, config)
         nets.append(net)
         birds.append(Bird(230, 350))
@@ -400,7 +347,7 @@ def main(genomes, config):
             ge.append(g)
 
 
-    score_threshold = 5 
+    score_threshold = 10
     run = True
     while run:
         clock.tick(30)
@@ -466,30 +413,17 @@ def main(genomes, config):
                 nets.pop(x)
                 ge.pop(x)
 
-        if score > 10:
-            break
+        # if score > 10:
+        #     break
 
         draw_window(win, birds, pipes, base, score)
 
+        if score > 0 and score % 10 == 0:
+            genome_sent = False
+            send_genome('trained_genome.pkl', host, port_send)
+            # save current winner
+            # in a seperate thread send pkl file to scala host and delete pkl file after it is sent. 
                 
-        # Save top performing genomes to disk
-        # if score != 0 and (score % score_threshold) == 0:
-        #     save_genomes(top_genomes, top_genomes_filename)
-
-        # Send genomes to Scala/Akka node
-        #send_genomes(send_genomes_list, host, port_send)
-
-        # Receive genomes from Scala/Akka node
-        #received_genomes = receive_genomes(host, port_receive)
-
-        # Integrate received genomes into the population
-        # if received_genomes:
-        #     for received_genome in received_genomes:
-        #         genomes.append(received_genome)
-        #         # Add the received genomes to top genomes as well
-        #         top_genomes.append(received_genome)
-
-
 def run(config_path):
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                      neat.DefaultSpeciesSet, neat.DefaultStagnation,
