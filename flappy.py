@@ -198,8 +198,9 @@ def load_genome(filename):
         genomes = pickle.load(f)
         return genomes
 
-
-save_path = '/Users/jomosmith/Desktop/Distributed Operating Systems/project/flappy/flappy/'
+curr_dir = os.path.dirname(os.path.abspath(__file__))
+relative_path = ''
+save_path = os.path.join(curr_dir,  relative_path)
 def request_genome(host, port):
     # Create a socket object
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
